@@ -15,6 +15,7 @@
 #define MAX_PROC_NAME 64
 #define MAX_CMD_LINE 1024
 #define LOG_STR_LEN 256
+#define PID_STR_LEN 16
 
 
 typedef struct Args
@@ -44,27 +45,28 @@ static Args_t args;
 static char log_str[LOG_STR_LEN];
 
 
-int parse_args(int argc, char *argv[], Args_t *args);
+void parse_args(int argc, char *argv[], Args_t *args);
 void daemon_stop(int sig_num);
 pid_t get_pid_by_name(const char *proc_name);
 int get_cmd_line(pid_t pid, char *cmd_line);
 int parse_config(void);
 void main_loop(void);
 void print_to_log(const char *line);
+void check_pid_file_exist(void);
+int make_pid_file(void);
+int remove_pid_file(void);
 
 
 int main(int argc, char *argv[])
 {
+    int rv = 0;
+
+    check_pid_file_exist();
+
     signal(SIGINT, daemon_stop);
     signal(SIGTERM, daemon_stop);
 
-    int rv = parse_args(argc, argv, &args);
-    if (rv == -1) {
-        return -1;
-    
-    } else if (rv == 1) {
-        return 0;
-    }
+    parse_args(argc, argv, &args);
 
     // Open configuration and logging files.
     log_file = fopen(args.log_file, "w");
@@ -80,21 +82,30 @@ int main(int argc, char *argv[])
     }
 
     if (parse_config() == -1) {
-        return -1;
+        rv = -1;
+        goto err;
+    }
+
+    if (make_pid_file() == -1) {
+        rv = -1;
+        goto err;
     }
 
     rv = daemon(0, 0);
     if (rv != 0) {
-        return rv;
+        goto err;
     }
 
     main_loop();
 
-    return 0;
+err:
+    fclose(config_file);
+    fclose(log_file);
+    return rv;
 }
 
 
-int parse_args(int argc, char *argv[], Args_t *args)
+void parse_args(int argc, char *argv[], Args_t *args)
 {
     int opt = 0;
     args->poll_interval = STD_POLL_INTERVAL;
@@ -130,7 +141,7 @@ int parse_args(int argc, char *argv[], Args_t *args)
                    "             -i PROCESSES_POLL_INTERVAL (in seconds, by default 1) \\\n"
                    "             -w SYSTEM_WAIT_INTERVAL (in seconds, by default 1)\n\n"
                    "All options except -c are optional\n");
-            return 1;
+            exit(0);
         }
     }
     
@@ -142,17 +153,20 @@ int parse_args(int argc, char *argv[], Args_t *args)
 
     if (!was_c_option) {
         fprintf(stderr, "Error: Missed configuration file path\n");
-        return -1;
+        exit(-1);
     }
-
-    return 0;
 }
 
 void daemon_stop(int sig_num)
 {
     fclose(config_file);
     fclose(log_file);
-    exit(0);
+    if (remove_pid_file() == 0) {
+        exit(0);
+
+    } else {
+        exit(-1);
+    }
 }
 
 pid_t get_pid_by_name(const char *proc_name)
@@ -170,7 +184,7 @@ pid_t get_pid_by_name(const char *proc_name)
         goto err;
     }
 
-    char pid_str[16];
+    char pid_str[PID_STR_LEN];
     if (fgets(pid_str, sizeof(pid_str), pid_file)) {
         sscanf(pid_str, "%d", &pid);
     
@@ -366,4 +380,37 @@ void print_to_log(const char *line)
 {
     fprintf(log_file, "%s", line);
     fflush(log_file);
+}
+
+void check_pid_file_exist(void)
+{
+    if (access("/var/run/procwatchd.pid", 0) == 0) {
+        fprintf(stderr,
+                "procwatchd.pid file already exsists\n");
+        exit(0);
+    }
+}
+
+int make_pid_file(void)
+{
+    FILE *pid_file = fopen("/var/run/procwatchd.pid", "w");
+    if (pid_file == NULL) {
+        fprintf(stderr, "Error: Can't open procwatchd.pid file\n");
+        return -1;
+    }
+
+    fprintf(pid_file, "%u\n", getpid());
+    
+    fclose(pid_file);
+    return 0;
+}
+
+int remove_pid_file(void)
+{
+    if (remove("/var/run/procwatchd.pid") != 0) {
+        print_to_log("Error, can't remove procwatchd.pid file");
+        return -1;
+    }
+
+    return 0;
 }
