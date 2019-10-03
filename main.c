@@ -37,7 +37,7 @@ typedef struct ProcAttrs
 
 static FILE *config_file = NULL;
 static FILE *log_file = NULL;
-static const char *opt_string = "c:l:i:w:";
+static const char *opt_string = "hc:l:i:w:";
 static ProcAttrs_t proc_attrs[MAX_PROC_NUM];
 static unsigned int proc_attrs_size = 0;
 static Args_t args;
@@ -58,25 +58,34 @@ int main(int argc, char *argv[])
     signal(SIGINT, daemon_stop);
     signal(SIGTERM, daemon_stop);
 
-    if (parse_args(argc, argv, &args) == -1) {
+    int rv = parse_args(argc, argv, &args);
+    if (rv == -1) {
         return -1;
+    
+    } else if (rv == 1) {
+        return 0;
     }
 
     // Open configuration and logging files.
     log_file = fopen(args.log_file, "w");
     if (log_file == NULL) {
-        fprintf(stderr, "Can't open log file\n");
+        fprintf(stderr, "Error: Can't open log file\n");
         return -1;
     }
     config_file = fopen(args.config_file, "r");
     if (config_file == NULL) {
-        fprintf(stderr, "Can't open configuration file\n");
+        fprintf(stderr, "Error: Can't open configuration file\n");
         fclose(log_file);
         return -1;
     }
 
     if (parse_config() == -1) {
         return -1;
+    }
+
+    rv = daemon(0, 0);
+    if (rv != 0) {
+        return rv;
     }
 
     main_loop();
@@ -111,15 +120,28 @@ int parse_args(int argc, char *argv[], Args_t *args)
         case 'w':
             sscanf(optarg, "%u", &args->system_wait_interval);
             break;
+
+        case 'h':
+        
+        default:
+            printf("Usage:\n"
+                   "./procwatchd -c CONFIG_FILE_PATH \\\n"
+                   "             -l LOG_FILE_PATH (/var/log/procwatchd.log by default) \\\n"
+                   "             -i PROCESSES_POLL_INTERVAL (in seconds, by default 1) \\\n"
+                   "             -w SYSTEM_WAIT_INTERVAL (in seconds, by default 1)\n\n"
+                   "All options except -c are optional\n");
+            return 1;
         }
     }
     
     if (!was_l_option) {
-        memmove(args->log_file, "log.txt", strlen("log.txt") + 1);
+        memmove(args->log_file,
+                "/var/log/procwatchd.log",
+                strlen("/var/log/procwatchd.log") + 1);
     }
 
     if (!was_c_option) {
-        fprintf(stderr, "Missed configuration file path\n");
+        fprintf(stderr, "Error: Missed configuration file path\n");
         return -1;
     }
 
@@ -230,7 +252,7 @@ int parse_config(void)
         proc_attrs[i].pid = get_pid_by_name(proc_attrs[i].proc_name);
         if (proc_attrs[i].pid < 0) {
             fprintf(stderr,
-                    "Error: Can't find PID by process name for %s, "
+                    "Can't find PID by process name for %s, "
                     "ignoring current process\n",
                     proc_attrs[i].proc_name);
             continue;
@@ -320,6 +342,11 @@ void main_loop(void)
                         proc_attrs[i].pid = -1; // Mark process as deleted.
                     
                     } else {
+                        snprintf(log_str,
+                                 LOG_STR_LEN,
+                                 "%s restarted\n",
+                                 proc_attrs[i].proc_name);
+                        print_to_log(log_str);
                         sleep(args.system_wait_interval);
                         proc_attrs[i].pid =
                                 get_pid_by_name(proc_attrs[i].proc_name);

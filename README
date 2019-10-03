@@ -1,0 +1,19 @@
+Usage:
+./procwatchd -c CONFIG_FILE_PATH \
+             -l LOG_FILE_PATH (./log.txt by default) \
+             -i PROCESSES_POLL_INTERVAL (in seconds, by default 1) \
+             -w SYSTEM_WAIT_INTERVAL (in seconds, by default 1)
+
+All options except -c are optional
+
+Config format:
+DAEMON_NAME_1 FLAG1 FLAG2
+DAEMON_NAME_2 FLAG1 FLAG2
+...
+DAEMON_NAME_N FLAG1 FLAG2
+
+Where FLAG1/FLAG2 are R or L
+You may use only one flag, e.g., dhclientd R
+
+R flag means that if the daemon terminated it should be restarted
+L flag means that termination should be logged
