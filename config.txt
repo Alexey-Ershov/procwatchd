@@ -1,5 +1,2 @@
-1503 A B
-1809 C D
-2011 E
-3051 F
-5000
+ntpd L R
+crond R L

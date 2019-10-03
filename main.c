@@ -44,7 +44,7 @@ static Args_t args;
 static char log_str[LOG_STR_LEN];
 
 
-void parse_args(int argc, char *argv[], Args_t *args);
+int parse_args(int argc, char *argv[], Args_t *args);
 void daemon_stop(int sig_num);
 pid_t get_pid_by_name(const char *proc_name);
 int get_cmd_line(pid_t pid, char *cmd_line);
@@ -58,16 +58,19 @@ int main(int argc, char *argv[])
     signal(SIGINT, daemon_stop);
     signal(SIGTERM, daemon_stop);
 
-    parse_args(argc, argv, &args);
+    if (parse_args(argc, argv, &args) == -1) {
+        return -1;
+    }
 
     // Open configuration and logging files.
     log_file = fopen(args.log_file, "w");
     if (log_file == NULL) {
+        fprintf(stderr, "Can't open log file\n");
         return -1;
     }
     config_file = fopen(args.config_file, "r");
     if (config_file == NULL) {
-        print_to_log("Can't open configuration file\n");
+        fprintf(stderr, "Can't open configuration file\n");
         fclose(log_file);
         return -1;
     }
@@ -82,19 +85,23 @@ int main(int argc, char *argv[])
 }
 
 
-void parse_args(int argc, char *argv[], Args_t *args)
+int parse_args(int argc, char *argv[], Args_t *args)
 {
     int opt = 0;
     args->poll_interval = STD_POLL_INTERVAL;
     args->system_wait_interval = STD_SYSTEM_WAIT_INTERVAL;
+    char was_c_option = 0;
+    char was_l_option = 0;
     while ((opt = getopt(argc, argv, opt_string)) != -1) {
         switch (opt) {
-        case 'c':
-            memmove(args->config_file, optarg, strlen(optarg) + 1);
+        case 'l':
+            was_l_option = 1;
+            memmove(args->log_file, optarg, strlen(optarg) + 1);
             break;
 
-        case 'l':
-            memmove(args->log_file, optarg, strlen(optarg) + 1);
+        case 'c':
+            was_c_option = 1;
+            memmove(args->config_file, optarg, strlen(optarg) + 1);
             break;
         
         case 'i':
@@ -106,6 +113,17 @@ void parse_args(int argc, char *argv[], Args_t *args)
             break;
         }
     }
+    
+    if (!was_l_option) {
+        memmove(args->log_file, "log.txt", strlen("log.txt") + 1);
+    }
+
+    if (!was_c_option) {
+        fprintf(stderr, "Missed configuration file path\n");
+        return -1;
+    }
+
+    return 0;
 }
 
 void daemon_stop(int sig_num)
@@ -154,11 +172,9 @@ int get_cmd_line(pid_t pid, char *cmd_line)
     snprintf(path_to_line, PATH_MAX, "/proc/%d/cmdline", pid);
     FILE *line_file = fopen(path_to_line, "rb");
     if (line_file == NULL) {
-        snprintf(log_str,
-                 LOG_STR_LEN,
-                 "Can't open cmdline file for PID %d, "
-                 "ignoring current process\n", pid);
-        print_to_log(log_str);
+        fprintf(stderr,
+                "Can't open cmdline file for PID %d, "
+                "ignoring current process\n", pid);
         goto err;
     }
 
@@ -173,10 +189,8 @@ int get_cmd_line(pid_t pid, char *cmd_line)
     }
 
     if (bytes_num < MAX_CMD_LINE && ferror(line_file)) {
-        snprintf(log_str,
-                 LOG_STR_LEN,
-                 "Error occurred while reading /proc/%d/cmdline\n", pid);
-        print_to_log(log_str);
+        fprintf(stderr,
+                "Error occurred while reading /proc/%d/cmdline\n", pid);
         goto err;
     }
 
@@ -200,7 +214,7 @@ int parse_config(void)
 
         if (!fgets(bufstr, sizeof(bufstr), config_file)) {
             if (ferror(config_file)) {
-                print_to_log(
+                fprintf(stderr,
                         "Error occurred while reading configuration file\n");
                 return -1;
             }
@@ -215,12 +229,10 @@ int parse_config(void)
 
         proc_attrs[i].pid = get_pid_by_name(proc_attrs[i].proc_name);
         if (proc_attrs[i].pid < 0) {
-            snprintf(log_str,
-                     LOG_STR_LEN,
-                     "Error: Can't find PID by process name for %s, "
-                     "ignoring current process\n",
-                     proc_attrs[i].proc_name);
-            print_to_log(log_str);
+            fprintf(stderr,
+                    "Error: Can't find PID by process name for %s, "
+                    "ignoring current process\n",
+                    proc_attrs[i].proc_name);
             continue;
         }
 
@@ -239,12 +251,10 @@ int parse_config(void)
 
         default:
             bufstr[strlen(bufstr) - 1] = '\0';
-            snprintf(log_str,
-                     LOG_STR_LEN,
-                     "Line \"%s\" - wrong flags, "
-                     "ignoring current process\n",
-                     bufstr);
-            print_to_log(log_str);
+            fprintf(stderr,
+                    "Line \"%s\" - wrong flags, "
+                    "ignoring current process\n",
+                    bufstr);
             continue;
         }
 
@@ -267,12 +277,10 @@ int parse_config(void)
 
             default:
                 bufstr[strlen(bufstr) - 1] = '\0';
-                snprintf(log_str,
-                         LOG_STR_LEN,
-                         "Line \"%s\" - wrong flags, "
-                         "ignoring current process\n",
-                         bufstr);
-                print_to_log(log_str);
+                fprintf(stderr,
+                        "Line \"%s\" - wrong flags, "
+                        "ignoring current process\n",
+                        bufstr);
                 continue;
             }
         }
