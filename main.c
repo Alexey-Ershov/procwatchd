@@ -86,13 +86,13 @@ int main(int argc, char *argv[])
         goto err;
     }
 
-    if (make_pid_file() == -1) {
-        rv = -1;
+    rv = daemon(0, 0);
+    if (rv != 0) {
         goto err;
     }
 
-    rv = daemon(0, 0);
-    if (rv != 0) {
+    if (make_pid_file() == -1) {
+        rv = -1;
         goto err;
     }
 
@@ -356,11 +356,14 @@ void main_loop(void)
                         proc_attrs[i].pid = -1; // Mark process as deleted.
                     
                     } else {
-                        snprintf(log_str,
-                                 LOG_STR_LEN,
-                                 "%s restarted\n",
-                                 proc_attrs[i].proc_name);
-                        print_to_log(log_str);
+                        if (proc_attrs[i].logging) {
+                            snprintf(log_str,
+                                     LOG_STR_LEN,
+                                     "%s restarted\n",
+                                     proc_attrs[i].proc_name);
+                            print_to_log(log_str);
+                        }
+                        
                         sleep(args.system_wait_interval);
                         proc_attrs[i].pid =
                                 get_pid_by_name(proc_attrs[i].proc_name);

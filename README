@@ -6,6 +6,10 @@ Usage:
 
 All options except -c are optional
 
+OR
+./procwatchd -h
+for help
+
 Config format:
 DAEMON_NAME_1 FLAG1 FLAG2
 DAEMON_NAME_2 FLAG1 FLAG2

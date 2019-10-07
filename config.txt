@@ -1,2 +1,2 @@
-ntpdd R L
+ntpd R L
 crond R L
