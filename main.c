@@ -48,7 +48,7 @@ static char log_str[LOG_STR_LEN];
 void parse_args(int argc, char *argv[], Args_t *args);
 void daemon_stop(int sig_num);
 pid_t get_pid_by_name(const char *proc_name);
-int get_cmd_line(pid_t pid, char *cmd_line);
+int get_cmd_line(pid_t pid, const char *proc_name, char *cmd_line);
 int parse_config(void);
 void main_loop(void);
 void print_to_log(const char *line);
@@ -200,7 +200,7 @@ err:
     return pid;
 }
 
-int get_cmd_line(pid_t pid, char *cmd_line)
+int get_cmd_line(pid_t pid, const char *proc_name, char *cmd_line)
 {
     int result = -1;
 
@@ -209,8 +209,8 @@ int get_cmd_line(pid_t pid, char *cmd_line)
     FILE *line_file = fopen(path_to_line, "rb");
     if (line_file == NULL) {
         fprintf(stderr,
-                "Can't open cmdline file for PID %d, "
-                "ignoring current process\n", pid);
+                "Can't open cmdline file for \"%s\", "
+                "ignoring current process\n", proc_name);
         goto err;
     }
 
@@ -280,6 +280,7 @@ int parse_config(void)
         case 'R':
             proc_attrs[i].need_restart = 1;
             if (get_cmd_line(proc_attrs[i].pid,
+                             proc_attrs[i].proc_name,
                              proc_attrs[i].cmd_line) == -1) {
                 continue;
             }
@@ -303,6 +304,7 @@ int parse_config(void)
             case 'R':
                 proc_attrs[i].need_restart = 1;
                 if (get_cmd_line(proc_attrs[i].pid,
+                                 proc_attrs[i].proc_name,
                                  proc_attrs[i].cmd_line) == -1) {
                     continue;
                 }
@@ -346,6 +348,21 @@ void main_loop(void)
                 }
 
                 if (proc_attrs[i].need_restart) {
+                    char path_to_pid[PATH_MAX];
+                    snprintf(path_to_pid, PATH_MAX,
+                             "/var/run/%s.pid", proc_attrs[i].proc_name);
+
+                    if (access(path_to_pid, 0) == 0) { // File already exists.
+                        if (remove(path_to_pid) != 0) {
+                            snprintf(log_str,
+                                     LOG_STR_LEN,
+                                     "Error: Can't remove %s file",
+                                     path_to_pid);
+                            print_to_log(log_str);
+                            proc_attrs[i].pid = -1; // Mark process as deleted.
+                        }
+                    }
+
                     if (system(proc_attrs[i].cmd_line) != 0) {
                         snprintf(log_str,
                                  LOG_STR_LEN,
@@ -359,7 +376,7 @@ void main_loop(void)
                         if (proc_attrs[i].logging) {
                             snprintf(log_str,
                                      LOG_STR_LEN,
-                                     "%s restarted\n",
+                                     "Process \"%s\" restarted\n",
                                      proc_attrs[i].proc_name);
                             print_to_log(log_str);
                         }
@@ -389,7 +406,7 @@ void check_pid_file_exist(void)
 {
     if (access("/var/run/procwatchd.pid", 0) == 0) {
         fprintf(stderr,
-                "procwatchd.pid file already exsists\n");
+                "Error: procwatchd.pid file already exists\n");
         exit(0);
     }
 }
